@@ -24,6 +24,8 @@ public partial class kickflipDBContext : DbContext
     public virtual DbSet<Product> Products { get; set; }
     public virtual DbSet<BigBuyProduct> bigbuyproducts { get; set; }
 
+    public virtual DbSet<CompetitorProduct> CompetitorProducts { get; set; }
+
 
 
     public static readonly ILoggerFactory FileLoggerFactory
@@ -61,12 +63,13 @@ public partial class kickflipDBContext : DbContext
             entity.Property(e => e.category).HasColumnName("category");
             entity.Property(e => e.condition).HasColumnName("condition");
             entity.Property(e => e.active).HasColumnName("active");
-            entity.Property(e => e.ebayTitle).HasColumnName("ebayTitle");
-            entity.Property(e => e.wholesalePrice).HasColumnName("wholesalePrice");
-            entity.Property(e => e.recommendedPrice).HasColumnName("recommendedPrice");
-            entity.Property(e => e.retailPrice).HasColumnName("retailPrice");
-            entity.Property(e => e.currentPrice).HasColumnName("currentPrice");
-            entity.Property(e => e.competitorPrice).HasColumnName("competitorPrice");
+            entity.Property(e => e.ebayTitle).HasColumnName("ebaytitle");
+            entity.Property(e => e.wholesalePrice).HasColumnName("wholesaleprice");
+            entity.Property(e => e.recommendedPrice).HasColumnName("recommendedprice");
+            entity.Property(e => e.retailPrice).HasColumnName("retailprice");
+            entity.Property(e => e.currentPrice).HasColumnName("currentprice");
+            entity.Property(e => e.competitorPrice).HasColumnName("competitorprice");
+            entity.Property(e => e.lastUpdated).HasColumnName("lastupdated");
 
         });
 
@@ -94,9 +97,21 @@ public partial class kickflipDBContext : DbContext
             entity.Property(e => e.LogisticClass).HasColumnName("logisticsclass");
         });
 
+        modelBuilder.Entity<CompetitorProduct>(entity =>
+        {
+            entity.HasKey(e => e.ebayId);
+            entity.ToTable("competitorproducts", "kickflip");
+            entity.Property(e => e.url).HasColumnName("url");
+            entity.Property(e => e.ebayId).HasColumnName("ebayid");
+            entity.Property(e => e.sku).HasColumnName("sku");
+            entity.Property(e => e.ean13).HasColumnName("ean13");
+            entity.Property(e => e.sellerTitle).HasColumnName("sellertitle");
+            entity.Property(e => e.sellerName).HasColumnName("sellername");
+            entity.Property(e => e.sellerPrice).HasColumnName("sellerprice");
+            entity.Property(e => e.alreadyRead).HasColumnName("alreadyread");
+        });
 
         OnModelCreatingPartial(modelBuilder);
-
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

@@ -21,5 +21,7 @@ namespace EFCore.Entities
         public float? currentPrice { get; set; }
         public float? competitorPrice { get; set; }
 
+        public DateTime? lastUpdated { get; set; }
+
     }
 }

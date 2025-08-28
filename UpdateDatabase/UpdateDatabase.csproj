@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BigBuyAPI\BigBuyAPI.csproj" />
+    <ProjectReference Include="..\csvInput\csvHandling.csproj" />
     <ProjectReference Include="..\EFCore\EFCore.csproj" />
   </ItemGroup>
 

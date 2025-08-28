@@ -1,9 +1,12 @@
-﻿using EFCore;
+﻿using csvHandling;
+using EbayAPI;
+using EFCore;
+using EFCore.Entities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using csvHandling;
-using EbayAPI;
+using Microsoft.Extensions.Options;
 
 namespace StockScreener
 {
@@ -11,13 +14,16 @@ namespace StockScreener
     {
         private readonly ILogger<Worker> _logger;
         private readonly IServiceProvider _serviceProvider;
+        private readonly EbayClient ebayAPI;
 
-        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider)
+        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider, IOptions<EbaySettings> ebayOptions)
         {
             _logger = logger;
             _serviceProvider = serviceProvider;
+            ebayAPI = new EbayClient(ebayOptions.Value);
         }
 
+        //we get the ids from our CompetitorProducts and add the EAns and the Price using the Ebay API
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
@@ -27,33 +33,76 @@ namespace StockScreener
                 using (var scope = _serviceProvider.CreateScope())
                 {
                     var dbContext = scope.ServiceProvider.GetRequiredService<kickflipDBContext>();
-                    CSVData cSVData = new CSVData();
 
-                    List<string>? urls = cSVData.getCSVData("C:\\Users\\luiss\\OneDrive\\Desktop\\Small Code\\KickFlip\\NewUrls.csv");
+                    List<string?> ebayIds = dbContext.CompetitorProducts
+                            .Where(p => p.ebayId != null && p.alreadyRead == false)
+                            .Select(p => p.ebayId)
+                            .ToList();
 
-                    if(urls == null || urls.Count == 0)
+
+                    if (ebayIds == null || ebayIds.Count == 0)
                     {
-                        Console.WriteLine("[ERROR] - CSV Data is Empty");
+                        Console.WriteLine("[ERROR] - No EbayID's in Database");
                         return;
                     }
+                    else Console.WriteLine($"Urls recieved from the Database: {ebayIds.Count}");
 
-                    var ebayAPI = new EbayAPI.EbayClient("ClientID","ClientSecret");
+
                     await ebayAPI.InitializeAsync();
 
-                    List<string> ebayproductIDs = ebayAPI.ExtractItemId(urls);
+                    Dictionary<string, (string?,decimal?)> MapIdEan = await ebayAPI.GetEanFromEbayId(ebayIds);
 
-                    Dictionary<string, string?> MapIdEan = await ebayAPI.GetEanFromEbayId(ebayproductIDs);
-                    List<string?> eans = MapIdEan.Values.ToList();
-                    
-                    if(eans != null && eans.Count > 0)
+                    int total = MapIdEan.Count;
+                    int index = 0;
+                    var usedEans = new HashSet<string>();
+
+
+                    foreach (var kvp in MapIdEan)
                     {
-                        cSVData.setCSVData("C:\\Users\\luiss\\OneDrive\\Desktop\\Small Code\\KickFlip\\FiftyFiftyEans.csv", eans);
+                        var ebayID = kvp.Key;
+                        var ean = kvp.Value.Item1;
+                        var price = kvp.Value.Item2;
+
+                        var product = dbContext.CompetitorProducts.FirstOrDefault(p => p.ebayId == ebayID);
+                        if (product == null)
+                            continue;
+
+                        bool modified = false;
+
+                        if (!string.IsNullOrWhiteSpace(ean))
+                        {
+                            if (usedEans.Contains(ean))
+                            {
+                                Console.WriteLine($"[DUPLICATE] Skipping EAN {ean} (already used)");
+                            }
+                            else
+                            {
+                                product.ean13 = ean;
+                                usedEans.Add(ean);
+                                modified = true;
+                            }
+                        }
+
+                        if (price != null && product.sellerPrice != price)
+                        {
+                            product.sellerPrice = price;
+                            modified = true;
+                        }
+
+                        if (modified) dbContext.Entry(product).State = EntityState.Modified;
+
+                        Console.Write($"\rProcessing {index}/{total} ({(index * 100) / total}%)");
 
                     }
-                    await dbContext.SaveChangesAsync();
+                    Console.WriteLine();
 
+                    var pendingChanges = dbContext.ChangeTracker.Entries()
+                    .Where(e => e.State == EntityState.Modified || e.State == EntityState.Added).ToList().Count;
+
+                    Console.WriteLine($"Added all EANs, Changes:{pendingChanges}");
+
+                    await dbContext.SaveChangesAsync();   
                 }
-
             }
             catch (Exception ex)
             {

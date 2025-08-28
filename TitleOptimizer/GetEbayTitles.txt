@@ -1,0 +1,97 @@
+﻿using EbayAPI;
+using EFCore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using OpenAI.Realtime;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace TitleOptimizer
+{
+    public class Worker : BackgroundService
+    {
+        private readonly ILogger<Worker> _logger;
+        private readonly IServiceProvider _serviceProvider;
+        private readonly EbayClient ebay;
+
+        public Worker(ILogger<Worker> logger, IServiceProvider serviceProvider, IOptions<EbaySettings> ebayOptions)
+        {
+            _logger = logger;
+            _serviceProvider = serviceProvider;
+            ebay = new EbayClient(ebayOptions.Value);
+        }
+
+        //we get the ids from our CompetitorProducts and add the EAns and the Price using the Ebay API
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
+
+            try
+            {
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    //OpenAiService openAi = new OpenAiService();
+                    var dbContext = scope.ServiceProvider.GetRequiredService<kickflipDBContext>();
+
+                    var existingProducts = dbContext.Products
+                        .Where(p => !string.IsNullOrWhiteSpace(p.id))
+                        .ToDictionary(p => p.id!);
+
+                    await ebay.InitializeAsync();
+                    Dictionary<string,string> EbayListings = await ebay.GetAllEbayTitlesAndItemIDsAsync();
+
+                    int inserted = 0;
+
+                    foreach (var item in EbayListings) 
+                    {
+                        bool modified = false;
+
+                        var product = dbContext.Products.FirstOrDefault(p => p.id == item.Key);
+
+                        if (product == null)
+                        {
+                            var newProduct = new EFCore.Entities.Product { id = item.Key, ebayTitle = item.Value };
+                            dbContext.Products.Add(newProduct); 
+                            existingProducts.Add(item.Key, newProduct);
+                            inserted++;
+                            continue;
+                        }
+
+                        if (product.ebayTitle == item.Value) continue;
+                        else
+                        {
+                            modified = true;
+                            product.ebayTitle = item.Value;
+                        }
+
+                        if (modified) dbContext.Entry(product).State = EntityState.Modified;
+                    }
+
+                    var pendingChanges = dbContext.ChangeTracker.Entries()
+                    .Where(e => e.State == EntityState.Modified || e.State == EntityState.Added).ToList().Count;
+
+                    _logger.LogInformation($"Added all Products, Changes:{pendingChanges}, New Products: {inserted}");
+
+                    await dbContext.SaveChangesAsync();
+
+                    _logger.LogInformation("Updated the Product Database");
+
+                    
+                    return;
+                }
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Exception trying to optimize the Title, Message: {ex}");
+            }
+
+        }
+    }
+}
